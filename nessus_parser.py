@@ -15,7 +15,7 @@ Requirements:
 - Python 3.6+
 - Nessus XCCDF export files (must contain TestResult data)
 
-Author: Fernando Landeros (with AI assistance) - MARSOC G-631
+Author: Fernando Landeros - MARSOC G-631
 Version: 1.0 - Nessus XCCDF to CKLB Converter
 Version date: 2026-01-15
 """
