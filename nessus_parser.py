@@ -44,6 +44,7 @@ def load_benchmark_files():
     """
     Load all benchmark XCCDF files from ZIP archives and loose files.
     Stores them in BENCHMARK_CACHE for later reference.
+    Supports nested ZIP files (ZIP inside ZIP).
     """
     global BENCHMARK_CACHE
     
@@ -54,11 +55,28 @@ def load_benchmark_files():
             try:
                 with zipfile.ZipFile(zip_file, 'r') as z:
                     for name in z.namelist():
+                        # Handle XCCDF XML files directly in the ZIP
                         if name.endswith('xccdf.xml') or (name.endswith('.xml') and 'xccdf' in name.lower()):
-                            # Extract just the filename for the key
                             filename = os.path.basename(name)
                             BENCHMARK_CACHE[filename] = z.read(name)
                             print(f"   Loaded benchmark: {filename}")
+                        
+                        # Handle nested ZIP files
+                        elif name.endswith('.zip'):
+                            try:
+                                # Read the nested ZIP into memory
+                                nested_zip_data = z.read(name)
+                                # Open it as a ZIP file from memory
+                                import io
+                                with zipfile.ZipFile(io.BytesIO(nested_zip_data), 'r') as nested_z:
+                                    for nested_name in nested_z.namelist():
+                                        if nested_name.endswith('xccdf.xml') or (nested_name.endswith('.xml') and 'xccdf' in nested_name.lower()):
+                                            filename = os.path.basename(nested_name)
+                                            BENCHMARK_CACHE[filename] = nested_z.read(nested_name)
+                                            print(f"   Loaded benchmark from nested ZIP: {filename}")
+                            except Exception as nested_error:
+                                # Skip if nested ZIP is corrupt or not a valid ZIP
+                                pass
             except Exception as e:
                 print(f"   Error loading benchmarks from {zip_file}: {e}")
     
