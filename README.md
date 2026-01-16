@@ -2,15 +2,15 @@
 
 Convert Nessus XCCDF scan exports into CKLB checklist files for STIG Viewer 3.
 
-**Version 1.1** - Now supports external STIG benchmark files!
+**Version 1.2** - Organized folder structure with separate directories for benchmarks and scan results!
 
 ---
 
 ## 🚀 Quick Start
 
 1. **Export from Nessus**: Export your scan as XCCDF format
-2. **(Optional) Add STIG benchmarks**: Place STIG ZIP files in this directory
-3. **Place scan file**: Put the scan export `.xml` file in this directory
+2. **Place scan file**: Put the scan export `.xml` file in `scan_results/`
+3. **(Optional) Add STIG benchmarks**: Place STIG ZIP files in `stig_benchmarks/`
 4. **Run**: `python nessus_parser.py`
 5. **Get results**: Find `.cklb` files in the `output/` directory
 
@@ -19,16 +19,22 @@ Convert Nessus XCCDF scan exports into CKLB checklist files for STIG Viewer 3.
 # Your directory structure:
 NessusParser/
 ├── nessus_parser.py
-├── my_scan_results.xml                    ← Your Nessus scan export
-└── U_Cisco_IOS-XE_Router_STIG.zip         ← (Optional) STIG benchmark
+├── scan_results/
+│   └── my_scan_results.xml                ← Your Nessus scan export
+├── stig_benchmarks/
+│   └── U_Cisco_IOS-XE_Router_STIG.zip     ← (Optional) STIG benchmarks
+└── output/
+    └── hostname_benchmark.cklb            ← Generated CKLB files
 
 # Run the tool:
 python nessus_parser.py
-
-# Output:
-output/
-└── hostname_benchmark.cklb                ← Import into STIG Viewer 3
 ```
+
+### Directory Structure
+
+- **`scan_results/`** - Place your Nessus XCCDF scan exports here
+- **`stig_benchmarks/`** - Place STIG ZIP files here (for external benchmark references)
+- **`output/`** - Generated CKLB files appear here automatically
 
 ---
 
@@ -36,6 +42,7 @@ output/
 
 ✅ **Nessus XCCDF exports with embedded benchmarks** (all rules in one file)  
 ✅ **Nessus SCAP exports with external benchmark references** (scan + separate benchmark)  
+✅ **Nested ZIP files** (quarterly STIG compilation packages)  
 ❌ Native `.nessus` files (must be exported as XCCDF)
 
 ---
@@ -47,7 +54,7 @@ Your Nessus export contains everything needed:
 - TestResult data (scan results)
 - Benchmark rules (check content, fix text, etc.)
 
-Just drop the file and run!
+Just drop the file in `scan_results/` and run!
 
 ### With External Benchmarks (NEW in v1.1)
 
@@ -78,6 +85,7 @@ The parser will:
 1. Open your Nessus scan with STIG compliance data
 2. Click **Export** → **XCCDF**
 3. Save the `.xml` file
+4. Place it in the `scan_results/` directory
 
 ### Step 2: (Optional) Add Benchmark Files
 
@@ -87,12 +95,13 @@ If your scan references external benchmarks, download the STIG ZIP from cyber.mi
 https://public.cyber.mil/stigs/downloads/
 ```
 
-Place the ZIP file in the same directory as the script. Examples:
+Place the ZIP file(s) in the `stig_benchmarks/` directory. Examples:
 - `U_Cisco_IOS-XE_Router_Y25M04_STIG.zip`
 - `U_Windows_Server_2022_STIG.zip`
 - `U_RHEL_9_STIG.zip`
+- Or the entire quarterly compilation ZIP (supports nested ZIPs!)
 
-**The parser automatically extracts and caches all benchmark files from any ZIP.**
+**The parser automatically extracts all benchmark files from ZIP archives.**
 
 ### Step 3: Run the Parser
 
@@ -137,8 +146,8 @@ Nessus XCCDF statuses → CKLB statuses:
 - ✅ No code changes needed for new STIGs
 
 **Matching process:**
-1. Parser scans directory for `*.zip` files
-2. Extracts all `*xccdf.xml` files from ZIPs
+1. Parser scans `stig_benchmarks/` directory for `*.zip` files
+2. Extracts all `*xccdf.xml` files from ZIPs (including nested ZIPs)
 3. Caches them by filename
 4. When processing scan: reads `<benchmark href="filename.xml">`
 5. Looks up filename in cache
@@ -165,7 +174,7 @@ Processing: windows_scan.xml
    Found benchmark reference: U_Windows_Server_2019_STIG.xml
    WARNING: Benchmark file not found: U_Windows_Server_2019_STIG.xml
    Available benchmarks: U_Cisco_IOS-XE_Router_NDM_STIG_V3R4_Manual-xccdf.xml, ...
-   HINT: Place the correct STIG ZIP file in this directory
+   HINT: Place the correct STIG ZIP file in stig_benchmarks/ directory
    Will create CKLB with limited rule information from scan data only.
    WARNING: No rule definitions found in benchmark!
    ⚠️ CKLB created with minimal information
@@ -183,7 +192,7 @@ Processing: windows_scan.xml
 **Solution:**
 1. Note the expected filename from the WARNING
 2. Download the correct STIG ZIP from cyber.mil
-3. Place it in the parser directory
+3. Place it in the `stig_benchmarks/` directory
 4. Re-run the parser
 
 ### Best Practices
@@ -192,10 +201,15 @@ Processing: windows_scan.xml
 ```
 NessusParser/
 ├── nessus_parser.py
-├── cisco_scan.xml                          ← Your scan exports
-├── windows_scan.xml
-├── U_Cisco_IOS-XE_Router_STIG.zip          ← STIG benchmarks
-└── U_Windows_Server_2019_STIG.zip
+├── scan_results/
+│   ├── cisco_scan.xml                      ← Your scan exports
+│   └── windows_scan.xml
+├── stig_benchmarks/
+│   ├── U_Cisco_IOS-XE_Router_STIG.zip      ← STIG benchmarks
+│   ├── U_Windows_Server_2019_STIG.zip
+│   └── Quarterly_Compilation_2025Q1.zip    ← Or quarterly compilation
+└── output/
+    └── (generated CKLB files)
 ```
 
 **Testing your setup:**
@@ -206,12 +220,18 @@ python nessus_parser.py
 Look for:
 ```
 1. Loading STIG benchmark files...
+   Looking in: c:\..\NessusParser\stig_benchmarks
    Loaded benchmark: U_Cisco_IOS-XE_Router_NDM_STIG_V3R4_Manual-xccdf.xml ✅
    Loaded benchmark: U_Windows_Server_2019_STIG.xml ✅
    Loaded 2 benchmark file(s)
+
+2. Discovering Nessus XCCDF scan export files...
+   Looking in: c:\..\NessusParser\scan_results
+   Found XCCDF file: cisco_scan.xml
+   Found 2 XCCDF file(s)
 ```
 
-If you see `No benchmark files found`, add STIG ZIPs to the directory.
+If you see `No benchmark files found`, add STIG ZIPs to `stig_benchmarks/`
 
 ---
 
@@ -229,7 +249,7 @@ If you see `No benchmark files found`, add STIG ZIPs to the directory.
 
 **Cause**: Files not in the correct location
 
-**Solution**: Place `.xml` files in the same directory as `nessus_parser.py`
+**Solution**: Place `.xml` scan export files in the `scan_results/` directory
 
 ---
 
@@ -240,7 +260,7 @@ If you see `No benchmark files found`, add STIG ZIPs to the directory.
 **Solution**: 
 1. Check the WARNING message for expected filename
 2. Download correct STIG ZIP from cyber.mil
-3. Place in parser directory
+3. Place in `stig_benchmarks/` directory
 4. Re-run
 
 ---
@@ -249,7 +269,7 @@ If you see `No benchmark files found`, add STIG ZIPs to the directory.
 
 **Cause**: Processed without benchmark file
 
-**Solution**: Add the referenced STIG ZIP and re-run the parser
+**Solution**: Add the referenced STIG ZIP to `stig_benchmarks/` and re-run
 
 ---
 
@@ -258,9 +278,10 @@ If you see `No benchmark files found`, add STIG ZIPs to the directory.
 **Cause**: No benchmark definitions loaded
 
 **Solution**: 
-- Ensure STIG ZIP files are in the directory
+- Ensure STIG ZIP files are in `stig_benchmarks/` directory
 - Check that ZIP files contain `*xccdf.xml` files
 - Verify filenames match the references in your scan export
+- Try the quarterly compilation ZIP (supports nested ZIPs)
 
 ---
 
@@ -274,13 +295,15 @@ Nessus XCCDF to CKLB Converter
 ================================================================================
 
 1. Loading STIG benchmark files...
+   Looking in: C:\NessusParser\stig_benchmarks
    Loaded benchmark: U_Cisco_IOS-XE_Router_NDM_STIG_V3R4_Manual-xccdf.xml
    Loaded benchmark: U_Cisco_IOS-XE_Router_RTR_STIG_V3R3_Manual-xccdf.xml
    Loaded 2 benchmark file(s)
 
 2. Discovering Nessus XCCDF scan export files...
-Found XCCDF file: router01_scan.xml
-Found 1 XCCDF file(s)
+   Looking in: C:\NessusParser\scan_results
+   Found XCCDF file: router01_scan.xml
+   Found 1 XCCDF file(s)
 
 3. Processing Nessus XCCDF files...
 

@@ -9,13 +9,19 @@ Features:
 - Supports embedded benchmarks (all-in-one XCCDF files)
 - Supports external benchmark references (loads from STIG ZIP files)
 - Automatically matches benchmark files by href attribute
+- Supports nested ZIP files (quarterly STIG compilation packages)
+- Organized folder structure (scan_results/ and stig_benchmarks/)
+
+Directory Structure:
+- scan_results/     - Place Nessus XCCDF scan exports here
+- stig_benchmarks/  - Place STIG ZIP files here (including quarterly compilation)
+- output/           - Generated CKLB files appear here
 
 Usage:
-1. Export scan results from Nessus in XCCDF format
-2. (Optional) Place STIG benchmark ZIP files in this directory
-3. Place XCCDF scan export .xml files in the same directory as this script
-4. Run: python nessus_parser.py
-5. CKLB files will be created in the 'output' directory
+1. Place Nessus scan exports in scan_results/
+2. (Optional) Place STIG benchmark ZIPs in stig_benchmarks/
+3. Run: python nessus_parser.py
+4. Find CKLB files in output/
 
 Requirements:
 - Python 3.6+
@@ -23,7 +29,7 @@ Requirements:
 - (Optional) STIG benchmark ZIP files for external references
 
 Author: Fernando Landeros - MARSOC G-631
-Version: 1.1 - Added External Benchmark Support
+Version: 1.2 - Organized Folder Structure & Enhanced TestResult Detection
 Version date: 2026-01-16
 """
 
@@ -36,6 +42,8 @@ import zipfile
 
 # --- CONFIGURATION ---
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+BENCHMARK_DIR = os.path.join(os.path.dirname(__file__), "stig_benchmarks")
+SCAN_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "scan_results")
 BENCHMARK_CACHE = {}  # Cache for loaded benchmark files
 
 # --- FUNCTIONS ---
@@ -43,13 +51,17 @@ BENCHMARK_CACHE = {}  # Cache for loaded benchmark files
 def load_benchmark_files():
     """
     Load all benchmark XCCDF files from ZIP archives and loose files.
+    Looks in the stig_benchmarks/ directory for STIG packages.
     Stores them in BENCHMARK_CACHE for later reference.
     Supports nested ZIP files (ZIP inside ZIP).
     """
     global BENCHMARK_CACHE
     
-    # Check for benchmark files in ZIP archives
-    zip_pattern = "*.zip"
+    # Create benchmark directory if it doesn't exist
+    os.makedirs(BENCHMARK_DIR, exist_ok=True)
+    
+    # Check for benchmark files in ZIP archives in the benchmark directory
+    zip_pattern = os.path.join(BENCHMARK_DIR, "*.zip")
     for zip_file in glob.glob(zip_pattern):
         if 'stig' in zip_file.lower():
             try:
@@ -80,46 +92,46 @@ def load_benchmark_files():
             except Exception as e:
                 print(f"   Error loading benchmarks from {zip_file}: {e}")
     
-    # Check for loose benchmark XML files (but not scan results)
-    xml_pattern = "*xccdf*.xml"
+    # Check for loose benchmark XML files in the benchmark directory
+    xml_pattern = os.path.join(BENCHMARK_DIR, "*xccdf*.xml")
     for xml_file in glob.glob(xml_pattern):
-        # Skip if it looks like a scan result (contains TestResult typically means it's a scan)
         try:
             with open(xml_file, 'rb') as f:
                 content = f.read()
-                # Quick check - if it has TestResult at the root level, it's likely a scan export
-                if b'<TestResult' not in content[:5000]:  # Check first 5KB
-                    filename = os.path.basename(xml_file)
-                    BENCHMARK_CACHE[filename] = content
-                    print(f"   Loaded benchmark: {filename}")
+                filename = os.path.basename(xml_file)
+                BENCHMARK_CACHE[filename] = content
+                print(f"   Loaded benchmark: {filename}")
         except Exception as e:
             print(f"   Error loading {xml_file}: {e}")
 
 def discover_xccdf_files():
     """
-    Discover all XCCDF XML files in the current directory.
+    Discover all XCCDF scan result files in the scan_results/ directory.
     Checks for loose .xml files and extracts from .zip files.
     Returns list of tuples: (filename, xml_content_bytes)
     """
     xccdf_files = []
     
-    # Check for loose XCCDF XML files
-    xml_pattern = "*.xml"
+    # Create scan results directory if it doesn't exist
+    os.makedirs(SCAN_RESULTS_DIR, exist_ok=True)
+    
+    # Check for loose XCCDF XML files in scan_results directory
+    xml_pattern = os.path.join(SCAN_RESULTS_DIR, "*.xml")
     for xml_file in glob.glob(xml_pattern):
-        print(f"Found XCCDF file: {xml_file}")
+        print(f"Found XCCDF file: {os.path.basename(xml_file)}")
         with open(xml_file, 'rb') as f:
             content = f.read()
-            xccdf_files.append((xml_file, content))
+            xccdf_files.append((os.path.basename(xml_file), content))
     
-    # Check for XCCDF files in ZIP archives
-    zip_pattern = "*.zip"
+    # Check for XCCDF files in ZIP archives in scan_results directory
+    zip_pattern = os.path.join(SCAN_RESULTS_DIR, "*.zip")
     for zip_file in glob.glob(zip_pattern):
-        print(f"Checking ZIP file: {zip_file}")
+        print(f"Checking ZIP file: {os.path.basename(zip_file)}")
         try:
             with zipfile.ZipFile(zip_file, 'r') as z:
                 for name in z.namelist():
                     if name.endswith('.xml'):
-                        xccdf_files.append((name, z.read(name)))
+                        xccdf_files.append((os.path.basename(name), z.read(name)))
         except Exception as e:
             print(f"Error processing {zip_file}: {e}")
     
@@ -184,7 +196,20 @@ def parse_nessus_xccdf_results(xccdf_bytes, benchmark_bytes=None):
     stig_title = benchmark.findtext('xccdf:title', stig_id, ns)
     
     # Find TestResult section (contains actual scan results from Nessus)
+    # Try multiple methods to find TestResult
     test_result = root.find('.//xccdf:TestResult', ns)
+    if test_result is None:
+        # Try without namespace prefix (for documents with default namespace)
+        test_result = root.find('.//{http://checklists.nist.gov/xccdf/1.1}TestResult')
+    if test_result is None:
+        # Try direct child search
+        test_result = root.find('xccdf:TestResult', ns)
+    if test_result is None:
+        # Last resort - look for any element with TestResult in the tag
+        for elem in root.iter():
+            if 'TestResult' in elem.tag:
+                test_result = elem
+                break
     
     if test_result is None:
         raise ValueError("No TestResult found in XCCDF - this may not be a Nessus scan export")
@@ -431,20 +456,23 @@ def main():
     
     # Load benchmark files first
     print("\n1. Loading STIG benchmark files...")
+    print(f"   Looking in: {BENCHMARK_DIR}")
     load_benchmark_files()
     if BENCHMARK_CACHE:
         print(f"   Loaded {len(BENCHMARK_CACHE)} benchmark file(s)")
     else:
-        print("   No benchmark files found in ZIP archives")
+        print("   No benchmark files found")
+        print(f"   Place STIG ZIP files in: {BENCHMARK_DIR}")
         print("   Will attempt to use embedded benchmarks from scan exports")
     
     # Discover all XCCDF files
     print("\n2. Discovering Nessus XCCDF scan export files...")
+    print(f"   Looking in: {SCAN_RESULTS_DIR}")
     xccdf_files = discover_xccdf_files()
     
     if not xccdf_files:
-        print("ERROR: No XCCDF files found in current directory!")
-        print("Please place Nessus XCCDF export files in this directory.")
+        print(f"ERROR: No XCCDF files found in {SCAN_RESULTS_DIR}")
+        print(f"Please place Nessus XCCDF export files in: {SCAN_RESULTS_DIR}")
         return
     
     print(f"Found {len(xccdf_files)} XCCDF file(s)")

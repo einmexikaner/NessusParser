@@ -1,2 +1,18 @@
+# Ignore all files in scan_results directory
+scan_results/*
+# But keep the directory itself
+!scan_results/.gitkeep
+
+# Ignore all files in stig_benchmarks directory
+stig_benchmarks/*
+# But keep the directory itself
+!stig_benchmarks/.gitkeep
+
+# Ignore all files in output directory
+output/*
+# But keep the directory itself
+!output/.gitkeep
+
+# Ignore CKLB and XML files anywhere (legacy)
 *.cklb
 *.xml
