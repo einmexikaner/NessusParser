@@ -92,7 +92,7 @@ def load_benchmark_files():
             except Exception as e:
                 print(f"   Error loading benchmarks from {zip_file}: {e}")
     
-    # Check for loose benchmark XML files in the benchmark directory
+    # Check for loose benchmark XML files in the benchmark directory and subdirectories
     xml_pattern = os.path.join(BENCHMARK_DIR, "*xccdf*.xml")
     for xml_file in glob.glob(xml_pattern):
         try:
@@ -103,6 +103,19 @@ def load_benchmark_files():
                 print(f"   Loaded benchmark: {filename}")
         except Exception as e:
             print(f"   Error loading {xml_file}: {e}")
+    
+    # Also search in subdirectories
+    xml_pattern_recursive = os.path.join(BENCHMARK_DIR, "**", "*xccdf*.xml")
+    for xml_file in glob.glob(xml_pattern_recursive, recursive=True):
+        filename = os.path.basename(xml_file)
+        if filename not in BENCHMARK_CACHE:  # Don't override already loaded files
+            try:
+                with open(xml_file, 'rb') as f:
+                    content = f.read()
+                    BENCHMARK_CACHE[filename] = content
+                    print(f"   Loaded benchmark from subdirectory: {filename}")
+            except Exception as e:
+                print(f"   Error loading {xml_file}: {e}")
 
 def discover_xccdf_files():
     """
