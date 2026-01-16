@@ -172,20 +172,32 @@ def parse_nessus_xccdf_results(xccdf_bytes, benchmark_bytes=None):
                     if benchmark_filename in BENCHMARK_CACHE:
                         print(f"      Loading benchmark from cache: {benchmark_filename}")
                         benchmark_root = ET.fromstring(BENCHMARK_CACHE[benchmark_filename])
+                        
+                        # Update namespace to match the benchmark file
+                        if benchmark_root.tag.startswith('{'):
+                            benchmark_ns_uri = benchmark_root.tag.split('}')[0][1:]
+                            ns = {'xccdf': benchmark_ns_uri}
+                        
                         benchmark = benchmark_root.find('.//xccdf:Benchmark', ns) or benchmark_root
                     else:
                         print(f"      WARNING: Benchmark file not found: {benchmark_filename}")
                         if BENCHMARK_CACHE:
                             print(f"      Available benchmarks: {', '.join(BENCHMARK_CACHE.keys())}")
-                            print(f"      HINT: Place the correct STIG ZIP file in this directory")
+                            print(f"      HINT: Place the correct STIG ZIP file in stig_benchmarks/ directory")
                         else:
-                            print(f"      No benchmark files loaded. Place STIG ZIP files in this directory.")
+                            print(f"      No benchmark files loaded. Place STIG ZIP files in stig_benchmarks/")
                         print(f"      Will create CKLB with limited rule information from scan data only.")
         
         # If still no benchmark and external benchmark provided, use it
         if (benchmark is None or len(benchmark.findall('.//xccdf:Group', ns)) == 0) and benchmark_bytes:
             print("      Using provided external benchmark...")
             benchmark_root = ET.fromstring(benchmark_bytes)
+            
+            # Update namespace to match the benchmark file
+            if benchmark_root.tag.startswith('{'):
+                benchmark_ns_uri = benchmark_root.tag.split('}')[0][1:]
+                ns = {'xccdf': benchmark_ns_uri}
+            
             benchmark = benchmark_root.find('.//xccdf:Benchmark', ns) or benchmark_root
     
     # Fallback to root if still no benchmark
