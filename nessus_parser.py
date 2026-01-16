@@ -5,19 +5,26 @@ Nessus XCCDF to CKLB Converter
 This script converts Nessus XCCDF scan exports into CKLB checklist files
 compatible with STIG Viewer 3.
 
+Features:
+- Supports embedded benchmarks (all-in-one XCCDF files)
+- Supports external benchmark references (loads from STIG ZIP files)
+- Automatically matches benchmark files by href attribute
+
 Usage:
 1. Export scan results from Nessus in XCCDF format
-2. Place XCCDF .xml files in the same directory as this script
-3. Run: python nessus_parser.py
-4. CKLB files will be created in the 'output' directory
+2. (Optional) Place STIG benchmark ZIP files in this directory
+3. Place XCCDF scan export .xml files in the same directory as this script
+4. Run: python nessus_parser.py
+5. CKLB files will be created in the 'output' directory
 
 Requirements:
 - Python 3.6+
 - Nessus XCCDF export files (must contain TestResult data)
+- (Optional) STIG benchmark ZIP files for external references
 
 Author: Fernando Landeros - MARSOC G-631
-Version: 1.0 - Nessus XCCDF to CKLB Converter
-Version date: 2026-01-15
+Version: 1.1 - Added External Benchmark Support
+Version date: 2026-01-16
 """
 
 import os
@@ -29,8 +36,46 @@ import zipfile
 
 # --- CONFIGURATION ---
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+BENCHMARK_CACHE = {}  # Cache for loaded benchmark files
 
 # --- FUNCTIONS ---
+
+def load_benchmark_files():
+    """
+    Load all benchmark XCCDF files from ZIP archives and loose files.
+    Stores them in BENCHMARK_CACHE for later reference.
+    """
+    global BENCHMARK_CACHE
+    
+    # Check for benchmark files in ZIP archives
+    zip_pattern = "*.zip"
+    for zip_file in glob.glob(zip_pattern):
+        if 'stig' in zip_file.lower():
+            try:
+                with zipfile.ZipFile(zip_file, 'r') as z:
+                    for name in z.namelist():
+                        if name.endswith('xccdf.xml') or (name.endswith('.xml') and 'xccdf' in name.lower()):
+                            # Extract just the filename for the key
+                            filename = os.path.basename(name)
+                            BENCHMARK_CACHE[filename] = z.read(name)
+                            print(f"   Loaded benchmark: {filename}")
+            except Exception as e:
+                print(f"   Error loading benchmarks from {zip_file}: {e}")
+    
+    # Check for loose benchmark XML files (but not scan results)
+    xml_pattern = "*xccdf*.xml"
+    for xml_file in glob.glob(xml_pattern):
+        # Skip if it looks like a scan result (contains TestResult typically means it's a scan)
+        try:
+            with open(xml_file, 'rb') as f:
+                content = f.read()
+                # Quick check - if it has TestResult at the root level, it's likely a scan export
+                if b'<TestResult' not in content[:5000]:  # Check first 5KB
+                    filename = os.path.basename(xml_file)
+                    BENCHMARK_CACHE[filename] = content
+                    print(f"   Loaded benchmark: {filename}")
+        except Exception as e:
+            print(f"   Error loading {xml_file}: {e}")
 
 def discover_xccdf_files():
     """
@@ -62,9 +107,11 @@ def discover_xccdf_files():
     
     return xccdf_files
 
-def parse_nessus_xccdf_results(xccdf_bytes):
+def parse_nessus_xccdf_results(xccdf_bytes, benchmark_bytes=None):
     """
     Parse Nessus XCCDF export containing TestResult data.
+    If benchmark_bytes is provided, uses that for rule definitions.
+    Otherwise, looks for embedded benchmark or tries to load from external reference.
     Returns: (target_info, stig_info, results_list)
     """
     root = ET.fromstring(xccdf_bytes)
@@ -75,8 +122,46 @@ def parse_nessus_xccdf_results(xccdf_bytes):
         ns_uri = root.tag.split('}')[0][1:]
         ns = {'xccdf': ns_uri}
     
-    # Extract benchmark info
-    benchmark = root.find('.//xccdf:Benchmark', ns) or root
+    # Try to find embedded benchmark first
+    benchmark = root.find('.//xccdf:Benchmark', ns)
+    
+    # If no embedded benchmark, check for external reference
+    if benchmark is None or len(benchmark.findall('.//xccdf:Group', ns)) == 0:
+        print("      No embedded benchmark found, checking for external reference...")
+        
+        # Look for benchmark reference in TestResult
+        test_result = root.find('.//xccdf:TestResult', ns)
+        if test_result is not None:
+            benchmark_elem = test_result.find('.//xccdf:benchmark', ns)
+            if benchmark_elem is not None:
+                benchmark_href = benchmark_elem.get('href', '')
+                if benchmark_href:
+                    print(f"      Found benchmark reference: {benchmark_href}")
+                    # Try to load from cache
+                    benchmark_filename = os.path.basename(benchmark_href)
+                    if benchmark_filename in BENCHMARK_CACHE:
+                        print(f"      Loading benchmark from cache: {benchmark_filename}")
+                        benchmark_root = ET.fromstring(BENCHMARK_CACHE[benchmark_filename])
+                        benchmark = benchmark_root.find('.//xccdf:Benchmark', ns) or benchmark_root
+                    else:
+                        print(f"      WARNING: Benchmark file not found: {benchmark_filename}")
+                        if BENCHMARK_CACHE:
+                            print(f"      Available benchmarks: {', '.join(BENCHMARK_CACHE.keys())}")
+                            print(f"      HINT: Place the correct STIG ZIP file in this directory")
+                        else:
+                            print(f"      No benchmark files loaded. Place STIG ZIP files in this directory.")
+                        print(f"      Will create CKLB with limited rule information from scan data only.")
+        
+        # If still no benchmark and external benchmark provided, use it
+        if (benchmark is None or len(benchmark.findall('.//xccdf:Group', ns)) == 0) and benchmark_bytes:
+            print("      Using provided external benchmark...")
+            benchmark_root = ET.fromstring(benchmark_bytes)
+            benchmark = benchmark_root.find('.//xccdf:Benchmark', ns) or benchmark_root
+    
+    # Fallback to root if still no benchmark
+    if benchmark is None:
+        benchmark = root
+    
     stig_id = benchmark.get('id', 'Unknown_STIG')
     stig_title = benchmark.findtext('xccdf:title', stig_id, ns)
     
@@ -153,6 +238,13 @@ def parse_nessus_xccdf_results(xccdf_bytes):
                 if ident.get('system') and 'cci' in ident.get('system', '').lower():
                     cci_refs.append(ident.text or "")
             rule_definitions[rule_id]['cci_ref'] = ", ".join(cci_refs) if cci_refs else ""
+    
+    # Report benchmark loading status
+    if not rule_definitions:
+        print(f"      WARNING: No rule definitions found in benchmark!")
+        print(f"      CKLB will be created with minimal information from scan results only.")
+    else:
+        print(f"      Loaded {len(rule_definitions)} rule definitions from benchmark")
     
     # Process each rule result from the scan
     for rule_result in rule_results:
@@ -319,8 +411,17 @@ def main():
     # Create output directory
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
+    # Load benchmark files first
+    print("\n1. Loading STIG benchmark files...")
+    load_benchmark_files()
+    if BENCHMARK_CACHE:
+        print(f"   Loaded {len(BENCHMARK_CACHE)} benchmark file(s)")
+    else:
+        print("   No benchmark files found in ZIP archives")
+        print("   Will attempt to use embedded benchmarks from scan exports")
+    
     # Discover all XCCDF files
-    print("\n1. Discovering Nessus XCCDF files...")
+    print("\n2. Discovering Nessus XCCDF scan export files...")
     xccdf_files = discover_xccdf_files()
     
     if not xccdf_files:
@@ -331,7 +432,7 @@ def main():
     print(f"Found {len(xccdf_files)} XCCDF file(s)")
     
     # Process each XCCDF file
-    print("\n2. Processing Nessus XCCDF files...")
+    print("\n3. Processing Nessus XCCDF files...")
     processed_count = 0
     error_count = 0
     
