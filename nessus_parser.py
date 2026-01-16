@@ -63,9 +63,8 @@ def load_benchmark_files():
     # Check for benchmark files in ZIP archives in the benchmark directory
     zip_pattern = os.path.join(BENCHMARK_DIR, "*.zip")
     for zip_file in glob.glob(zip_pattern):
-        if 'stig' in zip_file.lower():
-            try:
-                with zipfile.ZipFile(zip_file, 'r') as z:
+        try:
+            with zipfile.ZipFile(zip_file, 'r') as z:
                     for name in z.namelist():
                         # Handle XCCDF XML files directly in the ZIP
                         if name.endswith('xccdf.xml') or (name.endswith('.xml') and 'xccdf' in name.lower()):
@@ -89,8 +88,8 @@ def load_benchmark_files():
                             except Exception as nested_error:
                                 # Skip if nested ZIP is corrupt or not a valid ZIP
                                 pass
-            except Exception as e:
-                print(f"   Error loading benchmarks from {zip_file}: {e}")
+        except Exception as e:
+            print(f"   Error loading benchmarks from {zip_file}: {e}")
     
     # Check for loose benchmark XML files in the benchmark directory and subdirectories
     xml_pattern = os.path.join(BENCHMARK_DIR, "*xccdf*.xml")
