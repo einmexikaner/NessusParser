@@ -158,11 +158,16 @@ def parse_nessus_xccdf_results(xccdf_bytes, benchmark_bytes=None):
     """
     root = ET.fromstring(xccdf_bytes)
     
-    # Handle XCCDF namespace
-    ns = {'xccdf': 'http://checklists.nist.gov/xccdf/1.1'}
+    # Handle XCCDF namespace - support both 1.1 and 1.2
+    ns = {'xccdf': 'http://checklists.nist.gov/xccdf/1.1'}  # Default to 1.1
     if root.tag.startswith('{'):
         ns_uri = root.tag.split('}')[0][1:]
         ns = {'xccdf': ns_uri}
+        # Also try both 1.1 and 1.2 namespaces as fallback
+        if '1.2' in ns_uri:
+            print("      Detected XCCDF 1.2 format")
+        elif '1.1' in ns_uri:
+            print("      Detected XCCDF 1.1 format")
     
     # Try to find embedded benchmark first
     benchmark = root.find('.//xccdf:Benchmark', ns)
@@ -172,9 +177,17 @@ def parse_nessus_xccdf_results(xccdf_bytes, benchmark_bytes=None):
         print("      No embedded benchmark found, checking for external reference...")
         
         # Look for benchmark reference in TestResult
-        test_result = root.find('.//xccdf:TestResult', ns)
+        # If root IS TestResult, use it directly, otherwise search for it
+        if 'TestResult' in root.tag:
+            test_result = root
+        else:
+            test_result = root.find('.//xccdf:TestResult', ns)
+        
         if test_result is not None:
+            # Try to find benchmark element (could be 'benchmark' or 'Benchmark')
             benchmark_elem = test_result.find('.//xccdf:benchmark', ns)
+            if benchmark_elem is None:
+                benchmark_elem = test_result.find('xccdf:benchmark', ns)
             if benchmark_elem is not None:
                 benchmark_href = benchmark_elem.get('href', '')
                 if benchmark_href:
@@ -220,20 +233,26 @@ def parse_nessus_xccdf_results(xccdf_bytes, benchmark_bytes=None):
     stig_title = benchmark.findtext('xccdf:title', stig_id, ns)
     
     # Find TestResult section (contains actual scan results from Nessus)
-    # Try multiple methods to find TestResult
-    test_result = root.find('.//xccdf:TestResult', ns)
-    if test_result is None:
-        # Try without namespace prefix (for documents with default namespace)
-        test_result = root.find('.//{http://checklists.nist.gov/xccdf/1.1}TestResult')
-    if test_result is None:
-        # Try direct child search
-        test_result = root.find('xccdf:TestResult', ns)
-    if test_result is None:
-        # Last resort - look for any element with TestResult in the tag
-        for elem in root.iter():
-            if 'TestResult' in elem.tag:
-                test_result = elem
-                break
+    # If root IS TestResult, use it directly
+    if 'TestResult' in root.tag:
+        test_result = root
+    else:
+        # Try multiple methods to find TestResult
+        test_result = root.find('.//xccdf:TestResult', ns)
+        if test_result is None:
+            # Try both XCCDF 1.1 and 1.2 namespaces
+            test_result = root.find('.//{http://checklists.nist.gov/xccdf/1.1}TestResult')
+        if test_result is None:
+            test_result = root.find('.//{http://checklists.nist.gov/xccdf/1.2}TestResult')
+        if test_result is None:
+            # Try direct child search
+            test_result = root.find('xccdf:TestResult', ns)
+        if test_result is None:
+            # Last resort - look for any element with TestResult in the tag
+            for elem in root.iter():
+                if 'TestResult' in elem.tag:
+                    test_result = elem
+                    break
     
     if test_result is None:
         raise ValueError("No TestResult found in XCCDF - this may not be a Nessus scan export")

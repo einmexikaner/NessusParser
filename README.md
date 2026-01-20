@@ -72,9 +72,23 @@ The parser will:
 
 **What you need:**
 - Your Nessus scan export (contains TestResult)
-- The STIG ZIP file from cyber.mil (contains benchmark XCCDF)
+- The matching STIG benchmark file
 
 **The parser does the rest automatically!**
+
+### ⚠️ IMPORTANT: SCAP Benchmarks vs Manual STIGs
+
+**Nessus SCAP compliance scans require SCAP-format benchmark files, NOT Manual STIG packages.**
+
+| Type | Filename Pattern | Used By | Source |
+|------|-----------------|---------|--------|
+| **SCAP Benchmarks** | `*_SCAP_1-2_Benchmark.xml`<br>`*_SCAP_1-3_Benchmark.xml` | Nessus SCAP compliance scans | Tenable SCAP content<br>DISA SCAP Compliance Checker |
+| **Manual STIGs** | `*_Manual-xccdf.xml` | Manual checklist review | cyber.mil quarterly compilation |
+
+**These are different file formats and are NOT interchangeable.**
+
+- If your Nessus scan references a SCAP benchmark (e.g., `U_MS_Windows_11_V2R6_STIG_SCAP_1-3_Benchmark.xml`), you need the SCAP benchmark ZIP from Tenable or DISA SCAP content
+- If you only have Manual STIGs from the quarterly compilation, the parser will create a CKLB with scan results only (no check content or fix text)
 
 ---
 
